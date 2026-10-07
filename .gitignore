@@ -16,9 +16,13 @@
 !.env.example
 
 # --- python -----------------------------------------------------------------------------
-.venv/            # a real directory in the main checkout...
-.venv             # ...but a SYMLINK inside git worktrees; the trailing slash would miss it
+# .venv is a real directory in the main checkout, but a SYMLINK inside git worktrees.
+# NOTE: gitignore only treats '#' as a comment at the START of a line -- an inline comment
+# becomes part of the pattern -- so both forms are listed on their own lines.
+.venv/
+.venv
 venv/
+venv
 __pycache__/
 *.py[cod]
 *.egg-info/
