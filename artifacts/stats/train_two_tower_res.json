@@ -1,0 +1,40 @@
+{
+  "model": "two_tower_res",
+  "objective": "sampled_softmax",
+  "device": "cuda",
+  "epochs": 3,
+  "batch_size": 512,
+  "steps": 11682,
+  "rows": 1993300,
+  "lr": 0.003,
+  "dim": 128,
+  "seq_len": 1000,
+  "train_seconds": 49.7,
+  "rows_per_second": 120259,
+  "params_trainable": 621009,
+  "residual": true,
+  "params_frozen": 4538687872,
+  "emb_table_gib": 8.45,
+  "vram_peak_gib": 16.91,
+  "history": [
+    {
+      "epoch": 0,
+      "loss": 5.17607,
+      "seconds": 17.2,
+      "steps": 3894
+    },
+    {
+      "epoch": 1,
+      "loss": 4.65625,
+      "seconds": 33.2,
+      "steps": 3894
+    },
+    {
+      "epoch": 2,
+      "loss": 4.56071,
+      "seconds": 49.7,
+      "steps": 3894
+    }
+  ],
+  "checkpoint": "/home/aiface/dangnguyenducanh/taobao proj/artifacts/models/two_tower_res.pt"
+}

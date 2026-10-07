@@ -1,0 +1,43 @@
+{
+  "din": {
+    "mode": "din",
+    "k": 1000,
+    "epochs": 2,
+    "batch_size": 128,
+    "steps": 31146,
+    "train_seconds": 154.7,
+    "params_trainable": 653522,
+    "history": [
+      {
+        "epoch": 0,
+        "loss": 0.39358
+      },
+      {
+        "epoch": 1,
+        "loss": 0.39074
+      }
+    ],
+    "checkpoint": "/home/aiface/dangnguyenducanh/taobao proj/artifacts/models/ranker_din.pt"
+  },
+  "muse": {
+    "mode": "muse",
+    "k": 50,
+    "epochs": 2,
+    "batch_size": 128,
+    "steps": 31146,
+    "train_seconds": 73.9,
+    "params_trainable": 653522,
+    "history": [
+      {
+        "epoch": 0,
+        "loss": 0.39392
+      },
+      {
+        "epoch": 1,
+        "loss": 0.39086
+      }
+    ],
+    "checkpoint": "/home/aiface/dangnguyenducanh/taobao proj/artifacts/models/ranker_muse.pt"
+  },
+  "device": "cuda"
+}

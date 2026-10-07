@@ -1,0 +1,33 @@
+{
+  "engine": "duckdb",
+  "rows_requested": 2000000,
+  "no_join_loss": {
+    "sampled": 200000,
+    "matched": 199999,
+    "join_retention": 0.999995,
+    "pos_rate_before": 0.13706,
+    "pos_rate_after": 0.13706068530342652,
+    "pos_rate_shift": 6.853034265341673e-07
+  },
+  "join": {
+    "output": "/home/aiface/dangnguyenducanh/taobao proj/artifacts/data/train_joined_2000000.parquet",
+    "rows": 1999965,
+    "pos_rate": 0.13724790183828217,
+    "users": 1526218,
+    "items": 756498,
+    "missing_item_metadata": 0,
+    "emb_dim": 128.0,
+    "seconds": 28.78,
+    "rows_per_second": 69491,
+    "bytes": 109632184,
+    "gb": 0.102
+  },
+  "total_seconds": 30.38,
+  "problems": [
+    "P1 label_0 is list<int8>, needs label_0[2]",
+    "P2 memory_limit default 80% of 156GiB > 41GiB actually free",
+    "P3 root fs ~101GB free -> spill to 79GB tmpfs at /tmp",
+    "P4 sample must be pushed below the join",
+    "P5 preserve_insertion_order=False for parallel materialisation"
+  ]
+}

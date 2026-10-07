@@ -1,0 +1,75 @@
+{
+  "seed": 42,
+  "seq_len": 1000,
+  "vocab": {
+    "vocab_size": 35458498,
+    "with_embedding": 35458466,
+    "embedding_coverage": 0.999999,
+    "pad_index": 35458498,
+    "id_min": -9223371365839403559,
+    "id_max": 9223371991405513823
+  },
+  "splits": {
+    "train": {
+      "rows": 1993300,
+      "users": 182105,
+      "items": 755590,
+      "positives": 274206,
+      "pos_rate": 0.13756,
+      "rows_per_user": 10.946,
+      "pos_per_user": 1.506,
+      "users_with_a_positive": 100981,
+      "users_with_a_positive_rate": 0.5545
+    },
+    "test": {
+      "rows": 451174,
+      "users": 40124,
+      "items": 272386,
+      "positives": 62086,
+      "pos_rate": 0.13761,
+      "rows_per_user": 11.244,
+      "pos_per_user": 1.547,
+      "users_with_a_positive": 22566,
+      "users_with_a_positive_rate": 0.5624
+    }
+  },
+  "cardinalities": {
+    "130_1": 12,
+    "130_2": 4,
+    "130_3": 50,
+    "130_4": 494,
+    "130_5": 7,
+    "213": 543,
+    "214": 122,
+    "206": 13051
+  },
+  "columns": [
+    "130_1",
+    "130_2",
+    "130_3",
+    "130_4",
+    "130_5",
+    "213",
+    "214",
+    "206"
+  ],
+  "history": {
+    "users": 222229,
+    "items_total": 217089421,
+    "len_mean": 976.9,
+    "len_max": 1000,
+    "bytes_int32": 868357684,
+    "bytes_if_int64": 1736715368
+  },
+  "method": {
+    "histories": "streamed 6 train + 2 test shards (projected cols)",
+    "candidates": "raw/{split}_samples.parquet joined to the discovered users (COMPLETE)",
+    "why": "rows are not grouped by user; a partial shard scan would give most users ~1 candidate instead of ~11 and silently break HR@K/NDCG@K"
+  },
+  "notes": [
+    "151_2_180 (categories) skipped: item category already available as 206",
+    "seq truncation keeps the newest seq_len entries",
+    "206 has no shipped sorted map -> vocabulary built from item_features"
+  ],
+  "total_seconds": 380.32
+}

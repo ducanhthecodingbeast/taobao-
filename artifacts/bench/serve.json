@@ -1,0 +1,58 @@
+{
+  "health": {
+    "status": "ok",
+    "session_backend": "memory",
+    "index_version": "v1",
+    "catalogue": 10000,
+    "index_mb": 7.32,
+    "embedding_table_mb": 212.6,
+    "user_tower": "onnx",
+    "uptime_s": 0.9
+  },
+  "workers": 2,
+  "control_health": {
+    "requests": 1984,
+    "concurrency": 32,
+    "p50_ms": 25.661,
+    "p95_ms": 106.752,
+    "p99_ms": 154.218,
+    "max_ms": 350.455,
+    "mean_ms": 37.324,
+    "rps": 857.4
+  },
+  "event": {
+    "requests": 1984,
+    "concurrency": 32,
+    "p50_ms": 26.344,
+    "p95_ms": 126.112,
+    "p99_ms": 198.728,
+    "max_ms": 314.193,
+    "mean_ms": 41.83,
+    "rps": 765.0
+  },
+  "recommend": {
+    "requests": 1984,
+    "concurrency": 32,
+    "p50_ms": 27.078,
+    "p95_ms": 123.889,
+    "p99_ms": 196.34,
+    "max_ms": 332.23,
+    "mean_ms": 41.406,
+    "rps": 772.8
+  },
+  "k": 10,
+  "verdict": {
+    "p95_ms": 123.889,
+    "control_p95_ms": 106.752,
+    "inference_overhead_p50_ms": 1.417,
+    "p95_under_20ms": false,
+    "note": "the /health control isolates framework overhead from model+index work; run with --workers >1 to see whether the ceiling is the GIL"
+  },
+  "metrics": {
+    "events": 86,
+    "recommends": 845,
+    "errors": 0,
+    "started": 1791360674.4208357,
+    "uptime_s": 8.8
+  }
+}

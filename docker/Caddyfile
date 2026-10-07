@@ -1,0 +1,53 @@
+# Caddy obtains and renews a Let's Encrypt certificate automatically.
+# Requires: DEMO_DOMAIN pointing at this host's public IP, ports 80+443 open,
+# and ACME_EMAIL set to a real address.
+#
+# {$DEMO_DOMAIN} is Caddy's environment-variable syntax; it is expanded at start-up.
+
+{$DEMO_DOMAIN} {
+	encode zstd gzip
+	{$ACME_EMAIL}
+
+	# Security headers for a public demo
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	# Cheap liveness/readiness for uptime checks
+	handle /health {
+		reverse_proxy api:8000
+	}
+
+	# Real-time recommendation path. Keep this tight: it is the latency-sensitive route.
+	handle /recommend* {
+		reverse_proxy api:8000 {
+			health_uri /health
+			health_interval 30s
+			transport http {
+				read_timeout 10s
+				write_timeout 10s
+			}
+		}
+	}
+
+	# Event ingestion
+	handle /event* {
+		reverse_proxy api:8000
+	}
+
+	handle /metrics {
+		reverse_proxy api:8000
+	}
+
+	handle {
+		respond "TAOBAO-MM next-item prediction demo. Try /health, POST /event, GET /recommend?user_id=1" 200
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}

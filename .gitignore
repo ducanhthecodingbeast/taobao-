@@ -1,0 +1,52 @@
+# ---------------------------------------------------------------------------------------
+# Ignore the big, regenerable things; TRACK the small deliverables.
+#
+# Measured sizes in this repo:
+#   artifacts/data    4.8 GB   (dense arrays, joined parquet -- regenerable via the CLI)
+#   artifacts/models  230 MB   (checkpoints + demo artifact -- regenerable by training)
+#   artifacts/stats    52 KB   } 916 KB total: these ARE the portfolio deliverables
+#   artifacts/bench    32 KB   } (measured results), so they are tracked deliberately
+#   artifacts/figures 792 KB   }
+#   artifacts/reports  40 KB   }
+# ---------------------------------------------------------------------------------------
+
+# --- secrets / local config -------------------------------------------------------------
+.env
+.env.*
+!.env.example
+
+# --- python -----------------------------------------------------------------------------
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# --- large datasets (never commit data) -------------------------------------------------
+UserBehavior.csv.zip
+*.csv.zip
+*.zip
+*.parquet
+!tests/**/*.parquet
+/data/
+
+# --- regenerable heavy artifacts --------------------------------------------------------
+artifacts/data/
+artifacts/models/
+artifacts/logs/
+*.npy
+*.npz
+*.pt
+*.onnx
+
+# --- scratch ----------------------------------------------------------------------------
+:memory:.ses
+*.ses
+*.log
+!artifacts/logs/.gitkeep
+.DS_Store

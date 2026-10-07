@@ -1,0 +1,79 @@
+# Isolated test stack for the backend verification suite.
+#
+# This host runs 200+ containers from other projects, so EVERYTHING here is namespaced:
+#   * compose project name  : tmmtest            (=> network tmmtest_default, volumes tmmtest_*)
+#   * container names       : tmmtest-redis / tmmtest-kafka
+#   * host ports            : 6399 (redis) / 9199 (kafka)  -- verified free on this host
+#   * no bind mounts from the host, no shared networks, no `restart:` policy
+#
+# Usage (run from the repo root):
+#   docker compose -f docker/docker-compose.test.yml up -d --wait
+#   PYTHONPATH=src MPLCONFIGDIR=/tmp/mpl .venv/bin/python -m pytest tests/backend -q
+#   docker compose -f docker/docker-compose.test.yml down -v
+#
+# Teardown removes the containers AND the two named volumes, so `down -v` is genuinely clean
+# (`docker ps -a --filter name=tmmtest` must be empty afterwards).
+
+name: tmmtest
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: tmmtest-redis
+    # No persistence: this stack is throwaway, and AOF/RDB files would be the only thing that
+    # survives `down -v` accidentally living in a volume we do remove anyway.
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "128mb",
+              "--maxmemory-policy", "allkeys-lru"]
+    ports:
+      - "127.0.0.1:6399:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+      start_period: 2s
+    volumes:
+      - tmmtest-redis-data:/data
+
+  kafka:
+    # Single-node KRaft (no ZooKeeper). The API/consumer run on the HOST during the tests, so
+    # the advertised listener must be reachable from the host: 127.0.0.1:9199.
+    image: apache/kafka:3.9.0
+    container_name: tmmtest-kafka
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      # NOTE: the CONTROLLER listener must bind/announce a routable address. If it binds
+      # 0.0.0.0 the apache/kafka image's KRaft bootstrap fails with
+      # "advertised.listeners cannot use the nonroutable meta-address 0.0.0.0" (verified).
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://127.0.0.1:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://127.0.0.1:9199
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@127.0.0.1:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_NUM_PARTITIONS: 3
+      # 213 containers are already running here; keep the JVM honest but small.
+      KAFKA_HEAP_OPTS: "-Xmx512m -Xms256m"
+      CLUSTER_ID: tmmtest-kraft-cluster-0001
+    ports:
+      # NOTE: the broker advertises 127.0.0.1:9199, so the host-side port MUST be 9199 (a
+      # remap such as 9199:9092 would break metadata once the client reconnects).
+      - "127.0.0.1:9199:9092"
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server 127.0.0.1:9092 >/dev/null 2>&1 || exit 1"]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+      start_period: 20s
+    volumes:
+      - tmmtest-kafka-data:/var/lib/kafka/data
+
+volumes:
+  tmmtest-redis-data:
+  tmmtest-kafka-data:

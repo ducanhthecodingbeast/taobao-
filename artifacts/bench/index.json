@@ -1,0 +1,108 @@
+{
+  "n_items": 10000,
+  "dim": 128,
+  "exact": {
+    "index": "IndexFlatIP",
+    "build_seconds": 0.0068,
+    "bytes": 5120000,
+    "mb": 4.883,
+    "latency": {
+      "p50_ms": 0.0114,
+      "p95_ms": 0.0134,
+      "p99_ms": 0.0136,
+      "qps": 83905,
+      "repeats": 3,
+      "batch_size": 2000
+    }
+  },
+  "hnsw": {
+    "index": "IndexHNSWFlat(M=32, efConstruction=200)",
+    "build_seconds": 0.1556,
+    "speedup_vs_flat_build": 0.04,
+    "bytes_vectors": 5120000,
+    "bytes_graph_estimate": 2560000,
+    "mb_total_est": 7.324,
+    "latency": {
+      "p50_ms": 0.0131,
+      "p95_ms": 0.0154,
+      "p99_ms": 0.0156,
+      "qps": 72042,
+      "repeats": 3,
+      "batch_size": 2000
+    }
+  },
+  "sweep": [
+    {
+      "efSearch": 16,
+      "recall@10": 0.9827,
+      "p50_ms": 0.0024,
+      "p95_ms": 0.0032,
+      "p99_ms": 0.0033,
+      "qps": 437054
+    },
+    {
+      "efSearch": 32,
+      "recall@10": 0.99415,
+      "p50_ms": 0.0026,
+      "p95_ms": 0.0034,
+      "p99_ms": 0.0034,
+      "qps": 371033
+    },
+    {
+      "efSearch": 64,
+      "recall@10": 0.9988,
+      "p50_ms": 0.0039,
+      "p95_ms": 0.0045,
+      "p99_ms": 0.0045,
+      "qps": 247743
+    },
+    {
+      "efSearch": 128,
+      "recall@10": 0.99975,
+      "p50_ms": 0.0082,
+      "p95_ms": 0.0091,
+      "p99_ms": 0.0092,
+      "qps": 123985
+    },
+    {
+      "efSearch": 256,
+      "recall@10": 0.99985,
+      "p50_ms": 0.0162,
+      "p95_ms": 0.0164,
+      "p99_ms": 0.0164,
+      "qps": 66342
+    }
+  ],
+  "memory_table": [
+    {
+      "encoding": "fp32 raw (128-d)",
+      "bytes_per_vector": 512,
+      "total_bytes": 5120000,
+      "total_mb": 4.883
+    },
+    {
+      "encoding": "fp16",
+      "bytes_per_vector": 256,
+      "total_bytes": 2560000,
+      "total_mb": 2.441
+    },
+    {
+      "encoding": "int8 (as shipped)",
+      "bytes_per_vector": 128,
+      "total_bytes": 1280000,
+      "total_mb": 1.221
+    },
+    {
+      "encoding": "PQ 32 B/vec (OPQ32_128,IVF4096,PQ32)",
+      "bytes_per_vector": 40,
+      "total_bytes": 400000,
+      "total_mb": 0.381
+    },
+    {
+      "encoding": "PQ 16 B/vec",
+      "bytes_per_vector": 24,
+      "total_bytes": 240000,
+      "total_mb": 0.229
+    }
+  ]
+}

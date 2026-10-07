@@ -1,0 +1,74 @@
+name: ci
+
+on:
+  push:
+    branches: ["main", "master"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHONPATH: src
+  MPLCONFIGDIR: /tmp/mpl
+
+jobs:
+  lint:
+    name: ruff
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip "ruff>=0.6"
+      # Config (rule set + per-file ignores) lives in pyproject.toml.
+      - run: ruff check src tests
+
+  typecheck:
+    name: mypy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+      # Only the serving package is type-gated; the legacy modules are not (see pyproject).
+      - run: python -m pip install --upgrade pip "mypy>=1.11" "numpy>=2.0"
+      - run: mypy src/tmm/serve
+
+  test:
+    name: pytest (service-free)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+      # Deliberately NOT requirements.txt: the full file pulls torch/pyspark/duckdb for the
+      # offline experiments. The backend contract requires every unit test to pass with no
+      # Redis, no Kafka and no model artifacts, so this is the whole runtime surface.
+      - name: Install service-free test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install \
+            "numpy>=2.0" "fastapi>=0.115" "uvicorn[standard]>=0.32" "pydantic>=2.9" \
+            "httpx" "redis>=5.1" "kafka-python-ng>=2.2" "prometheus-client>=0.20" \
+            "pytest>=8.3" "pytest-asyncio>=0.24"
+      # No services are started on purpose: the suite must pass on a bare runner.
+      - run: pytest -q tests/backend
+
+  compose-config:
+    name: docker compose config
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Static validation only: a real image build needs the 212 MB artifact tree, which is
+      # not committed. This still catches YAML/profile/depends_on mistakes in the demo stack.
+      - run: docker compose -f docker/docker-compose.yml config --quiet

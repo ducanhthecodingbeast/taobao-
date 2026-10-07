@@ -1,0 +1,36 @@
+# Core data stack
+numpy>=2.0
+pandas>=2.2
+pyarrow>=17
+duckdb>=1.1
+polars>=1.9
+pyyaml
+tqdm
+# Distributed data engineering (Direction 2)
+pyspark>=3.5
+# ML
+scikit-learn>=1.5
+lightgbm>=4.5
+# PyTorch CPU (Direction 2 models)
+torch --extra-index-url https://download.pytorch.org/whl/cpu
+# Vector retrieval (Direction 1)
+faiss-cpu>=1.9
+# Serving / realtime (Direction 1)
+fastapi>=0.115
+uvicorn[standard]>=0.32
+pydantic>=2.9
+httpx
+redis>=5.1
+kafka-python-ng>=2.2
+prometheus-client>=0.20
+onnxruntime>=1.20
+# Reporting
+matplotlib>=3.9
+seaborn>=0.13
+plotly>=5.24
+kaleido
+# Quality
+pytest>=8.3
+pytest-asyncio>=0.24
+ruff>=0.6
+mypy>=1.11

@@ -1,0 +1,72 @@
+# Tooling configuration for the TAOBAO-MM project.
+#
+# There is deliberately no [project]/[build-system] table: this repository is run from
+# source (`PYTHONPATH=src`), and adding packaging metadata would change nothing for the
+# experiments. Only the quality gates below matter here.
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+exclude = [".venv", "__pycache__", "artifacts", "notebooks", "build", "dist"]
+
+[tool.ruff.lint]
+# The gate applied to the *new* code (src/tmm/serve) and to tests/.
+select = ["E4", "E7", "E9", "F", "I", "B", "UP", "RUF"]
+ignore = [
+    "RUF001",  # ambiguous unicode: en-dashes and arrows in docstrings are intentional
+    "RUF002",
+    "RUF003",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Legacy modules (outside src/tmm/serve) predate the lint gate and are not part of this
+# change; they are listed here so `ruff check src tests` is a meaningful gate for new code
+# without a 90-error wall of pre-existing noise. Fixing them is a separate task.
+"src/tmm/*.py" = [
+    "B007",
+    "B904",
+    "E702",
+    "E741",
+    "F401",
+    "F841",
+    "F821",
+    "I001",
+    "B006",
+    "B008",
+    "B023",
+    "B905",
+    "C401",
+    "C408",
+    "UP006",
+    "UP028",
+    "UP035",
+    "UP037",
+    "RUF005",
+    "RUF007",
+    "RUF046",
+    "RUF059",
+    "RUF100",
+]
+# FastAPI depends on function-call defaults (`= Depends(...)`, `= Header(...)`); B008 is a
+# known false positive for that idiom.
+"src/tmm/serve/app.py" = ["B008"]
+# Test idioms the gate should not fight: dynamic getattr on a module under test (B009),
+# pytest.raises(Exception) for frozen-dataclass mutation (B017), class-level mutable
+# constants that are never mutated (RUF012), typing imports kept for 3.9-style spellings
+# (UP035/UP037), and unpacking a record's fields for readability (RUF059).
+"tests/**" = ["B009", "B017", "RUF012", "RUF059", "UP035", "UP037"]
+
+[tool.mypy]
+python_version = "3.12"
+files = ["src/tmm/serve"]
+check_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = false
+ignore_missing_imports = true
+follow_imports = "silent"
+exclude = ["^src/tmm/(?!serve/)"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"

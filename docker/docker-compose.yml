@@ -1,0 +1,132 @@
+# Direction 1 — the live demo stack.
+#
+# Sized from the measured numbers, not guessed:
+#   * 10k-item HNSW index  = ~7.6 MB (5.1 MB vectors + ~2.6 MB graph)  -> not the bottleneck
+#   * API RSS             ~ 400-800 MB (python + onnxruntime + faiss)
+#   * Kafka (KRaft)       ~ 512 MB JVM with the heap cap below
+#   * Redis               ~ 100 MB for 1e5 sessions
+# => 2 vCPU / 4 GB RAM / 40 GB disk is comfortable. 1 vCPU / 2 GB only works with the
+#    `demo` profile (no Kafka), which is exactly why the profiles are split.
+#
+#   docker compose --profile demo up          # API + Redis + Caddy, no Kafka
+#   docker compose --profile full up          # adds a single-node KRaft broker + the ingest worker
+#
+# Auth/rate limiting: set TMM_API_KEYS (comma separated) in the environment before `up`.
+#   TMM_API_KEYS=demo-key docker compose --profile full up
+# With no keys set the API runs in documented dev mode: every request is accepted and a loud
+# `auth_disabled` warning is logged on startup.
+
+name: taobao-mm-demo
+
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      KAFKA_BOOTSTRAP: kafka:9092
+      TMM_API_KEYS: ${TMM_API_KEYS:-}
+      TMM_AUTH_REQUIRED: ${TMM_AUTH_REQUIRED:-}
+      TMM_RATE_LIMIT_RPS: ${TMM_RATE_LIMIT_RPS:-20}
+      TMM_RATE_LIMIT_BURST: ${TMM_RATE_LIMIT_BURST:-40}
+      # Shared bucket across API replicas; falls back to the in-process bucket on Redis errors.
+      TMM_RATE_LIMIT_BACKEND: ${TMM_RATE_LIMIT_BACKEND:-redis}
+      TMM_KAFKA_TOPIC: ${TMM_KAFKA_TOPIC:-tmm.clickstream}
+      TMM_KAFKA_DLQ_TOPIC: ${TMM_KAFKA_DLQ_TOPIC:-tmm.clickstream.dlq}
+      TMM_SESSION_MAX: ${TMM_SESSION_MAX:-50}
+      TMM_STAGE_TIMEOUT_S: ${TMM_STAGE_TIMEOUT_S:-0.5}
+      TMM_DEVICE: cpu
+      TMM_DATA: /data
+    volumes:
+      - ../artifacts:/app/artifacts:ro
+      - ${TMM_DATA_HOST:-/srv/taobao-mm}:/data:ro
+    expose: ["8000"]
+    healthcheck:
+      # Liveness only: the service is meant to keep answering with Redis/Kafka down.
+      test: ["CMD", "python", "-c",
+             "import httpx;assert httpx.get('http://127.0.0.1:8000/livez',timeout=5).status_code==200"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 120s
+    deploy:
+      resources:
+        limits: {cpus: "2.0", memory: 2g}
+    restart: unless-stopped
+
+  # The ingest worker is a SEPARATE process (contract §3.3) -- it never runs inside the API.
+  # Only meaningful with a broker, hence the `full` profile.
+  consumer:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    command: ["python", "-m", "tmm.serve.consumer"]
+    profiles: ["full"]
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      KAFKA_BOOTSTRAP: kafka:9092
+      TMM_KAFKA_TOPIC: ${TMM_KAFKA_TOPIC:-tmm.clickstream}
+      TMM_KAFKA_DLQ_TOPIC: ${TMM_KAFKA_DLQ_TOPIC:-tmm.clickstream.dlq}
+      TMM_IDEMPOTENCY_TTL_S: ${TMM_IDEMPOTENCY_TTL_S:-3600}
+      TMM_SESSION_MAX: ${TMM_SESSION_MAX:-50}
+    depends_on: [redis, kafka]
+    deploy:
+      resources:
+        limits: {cpus: "0.5", memory: 256m}
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine            # official upstream image, not a repackaged vendor tag
+    command: ["redis-server", "--save", "", "--appendonly", "no",
+              "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    expose: ["6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  # Redis Stack is only needed for the *vector* path (FT.SEARCH). The default demo uses FAISS
+  # in-process, so plain redis:7 keeps the footprint small.
+  redis-stack:
+    image: redis/redis-stack-server:latest
+    profiles: ["vector"]
+    expose: ["6379"]
+
+  kafka:
+    image: apache/kafka:3.9.0        # KRaft mode, no ZooKeeper
+    profiles: ["full"]
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_HEAP_OPTS: "-Xmx512m -Xms256m"     # the JVM is why Kafka, not the API, needs RAM
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    expose: ["9092"]
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    ports: ["80:80", "443:443"]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      DEMO_DOMAIN: ${DEMO_DOMAIN:-localhost}
+      ACME_EMAIL: ${ACME_EMAIL:-you@example.com}
+    depends_on: [api]
+    restart: unless-stopped
+
+volumes:
+  caddy_data:
+  caddy_config:

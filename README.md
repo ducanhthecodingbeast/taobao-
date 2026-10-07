@@ -100,6 +100,33 @@ docker/            compose (demo|full|vector profiles) + Caddyfile
 artifacts/         stats/*.json, figures/*.png, bench/*.json, models/, reports/
 ```
 
+## Backend (Part B)
+
+The Direction-1 service was hardened against a frozen interface contract
+([`docs/BACKEND_CONTRACT.md`](docs/BACKEND_CONTRACT.md)); design and failure analysis in
+[`docs/BACKEND_DESIGN.md`](docs/BACKEND_DESIGN.md).
+
+| | |
+|---|---|
+| **Ingestion** | `POST /events` → Kafka (`tmm.clickstream`, keyed by user for partition ordering) → a separate consumer process writes the Redis session. Idempotency key makes at-least-once replay harmless; malformed events go to a DLQ and the offset is committed anyway so a poison message cannot block a partition. |
+| **Degradation** | three explicit modes, reported by `/health`: `full` (Redis+Kafka), `degraded` (Redis only, direct write), `minimal` (no Redis, in-process). `/readyz` is 503 in `minimal`; `/livez` is always 200. Redis is recovered **without a restart**. |
+| **Auth / abuse** | `X-API-Key` → 401 when missing; hand-rolled token bucket → 429 + `Retry-After`. A request with no resolvable IP is still limited (shared anonymous bucket). |
+| **Observability** | single-line JSON logs with redaction, and 9 Prometheus metrics behind `/metrics`, including per-stage histograms (`decode`, `session_read`, `tower`, `search`, `total`). |
+| **Resilience** | circuit breaker with an injectable clock, per-stage timeouts, SIGTERM drain, lifespan shutdown. |
+| **CI** | `ruff` + `mypy` + the service-free suite + a Docker build. |
+
+### The sizing claim was wrong until it was measured
+
+Direction 1 is supposed to fit a **2 vCPU / 4 GB VPS**. Measured peak RSS of the real service was
+**7,028 MB** — the claim was false. Two causes: `load_embeddings_subset` scatter-gathers ~870 k rows
+out of the 4.5 GB memmap (each row is 128 B, so neighbouring rows share no page, and **touched mmap
+pages count toward RSS**), and `load_prepared()` pulled in the full 35.46 M-entry vocabulary just to
+map an id to a row.
+
+Fixed by precomputing one self-sufficient artifact (`python -m tmm.cli build-demo-artifact`,
+217 MB, 100 % category coverage). **790 MB and 1.1 s startup**, an 8.9× reduction. Reproduce:
+`python -m tmm.cli measure-memory --mode artifact` / `--mode legacy`.
+
 ## Constraints honoured
 
 * 41 GiB free RAM, 101 GB free disk, and a **shared** GPU — every stage has a row/user budget,
@@ -112,4 +139,3 @@ artifacts/         stats/*.json, figures/*.png, bench/*.json, models/, reports/
 See the Sources section of `artifacts/reports/TAOBAO_MM_REPORT.md` — MUSE (arXiv:2512.07216),
 SCL (arXiv:2407.19467), the official MUSE implementation, DIN/SIM, FAISS, ONNX Runtime, and the
 sampled-metrics critique (Rendle, arXiv:1912.02263).
-# taobao-

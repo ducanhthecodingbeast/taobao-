@@ -1,0 +1,33 @@
+{
+  "engine": "pyspark-local",
+  "spark_version": "4.2.0",
+  "setup_seconds": 2.83,
+  "join_seconds": 6.45,
+  "write_seconds": 19.71,
+  "rows_joined": 499989,
+  "rows_per_second": 77533,
+  "pos_rate": 0.13709701613435496,
+  "users": 456542,
+  "items": 295823,
+  "emb_dim": 128,
+  "buckets": 256,
+  "payload": {
+    "as_int8_bytes": 63998592,
+    "as_float32_bytes": 255994368,
+    "as_float64_bytes": 511988736,
+    "saving_vs_float32": "75%"
+  },
+  "extrapolation": {
+    "full_train_rows": 76015123,
+    "estimated_join_seconds": 980.4,
+    "estimated_join_hours": 0.27
+  },
+  "problems": {
+    "P1": "label_0 ArrayType(ByteType) -> getItem(1)",
+    "P2": "driver default 1g -> set 8g",
+    "P3": "no broadcast of 4.5GB embeddings -> bucketed co-partition",
+    "P4": "AQE skew join for head items",
+    "P5": "local[4] with 8g driver beats local[*] (memory pressure)",
+    "P6": "keep emb as int8 bytes, cast inside the model"
+  }
+}

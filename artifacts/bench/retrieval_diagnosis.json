@@ -1,0 +1,55 @@
+{
+  "bce_pointwise": {
+    "cone_similarity": 0.9657,
+    "learned_x_learned": {
+      "R@10": 0.0,
+      "R@50": 0.0,
+      "R@100": 0.0,
+      "R@500": 0.0005
+    },
+    "learned_user_x_raw_scl": {
+      "R@10": 0.0,
+      "R@50": 0.0,
+      "R@100": 0.0,
+      "R@500": 0.0005
+    }
+  },
+  "sampled_softmax": {
+    "cone_similarity": 0.2865,
+    "learned_x_learned": {
+      "R@10": 0.00475,
+      "R@50": 0.02425,
+      "R@100": 0.0375,
+      "R@500": 0.0985
+    },
+    "learned_user_x_raw_scl": {
+      "R@10": 0.0,
+      "R@50": 0.0,
+      "R@100": 0.0,
+      "R@500": 0.00025
+    }
+  },
+  "sampled_softmax+residual": {
+    "cone_similarity": 0.2978,
+    "learned_x_learned": {
+      "R@10": 0.01525,
+      "R@50": 0.0425,
+      "R@100": 0.05925,
+      "R@500": 0.12975
+    },
+    "learned_user_x_raw_scl": {
+      "R@10": 0.0,
+      "R@50": 0.0,
+      "R@100": 0.00025,
+      "R@500": 0.00075
+    }
+  },
+  "A_pooled_raw_scl_GSU": {
+    "R@10": 0.00575,
+    "R@50": 0.02075,
+    "R@100": 0.03325,
+    "R@500": 0.07725
+  },
+  "random_R@500": 0.00058079,
+  "catalogue_size": 860903
+}
