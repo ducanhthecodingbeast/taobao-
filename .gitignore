@@ -36,9 +36,15 @@ UserBehavior.csv.zip
 /data/
 
 # --- regenerable heavy artifacts --------------------------------------------------------
+# These are directories INSIDE the tracked artifacts/ tree. In a git worktree they appear as
+# symlinks (pointing at the main checkout) so the multi-GB data is not duplicated -- and those
+# links must not be committed, or a worktree would try to add a symlink as a real path.
 artifacts/data/
 artifacts/models/
 artifacts/logs/
+artifacts/data
+artifacts/models
+artifacts/logs
 *.npy
 *.npz
 *.pt
