@@ -16,7 +16,8 @@
 !.env.example
 
 # --- python -----------------------------------------------------------------------------
-.venv/
+.venv/            # a real directory in the main checkout...
+.venv             # ...but a SYMLINK inside git worktrees; the trailing slash would miss it
 venv/
 __pycache__/
 *.py[cod]
