@@ -1,0 +1,21 @@
+{
+  "rows": 100150807,
+  "users": 987994,
+  "items": 4162024,
+  "categories": 9439,
+  "start": "1902-05-07",
+  "end": "2037-04-09",
+  "days": 49280.28,
+  "dup_groups": 49,
+  "rows_per_user": {
+    "mean": 101.37,
+    "p50": 75.0,
+    "p90": 218.0,
+    "max": 848
+  },
+  "gini": 0.8309,
+  "top100_share": 0.0117,
+  "items_for_50pct": 94940,
+  "singleton_item_pct": 29.0,
+  "profile_seconds": 8.9
+}
