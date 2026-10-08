@@ -1,0 +1,15 @@
+# Keep the build context small: the image only needs src/, artifacts/models/demo and
+# artifacts/stats. Without this file the context included artifacts/data (4.8 GB) and .venv.
+.git
+.venv
+shipyard
+*.zip
+**/__pycache__
+.mypy_cache
+.ruff_cache
+.pytest_cache
+artifacts/data
+artifacts/logs
+artifacts/figures
+artifacts/models/*.pt
+artifacts/models/onnx

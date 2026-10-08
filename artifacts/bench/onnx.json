@@ -7,38 +7,46 @@
     "user_vec[B,128] L2-normalised"
   ],
   "why_no_embedding_table": "35.46M x 128 fp16 = 8.45 GiB initializer; ORT dynamic quantisation is known to blow up on multi-GB tables (onnxruntime#21979). Gather happens outside the graph.",
-  "weights_loaded": 11,
-  "weights_missing": 0,
+  "checkpoint": "two_tower_res.pt",
+  "residual": true,
   "fp32": {
     "path": "/home/aiface/dangnguyenducanh/taobao proj/artifacts/models/onnx/user_tower_fp32.onnx",
-    "bytes": 387354
+    "bytes": 453025
   },
   "int8": {
     "path": "/home/aiface/dangnguyenducanh/taobao proj/artifacts/models/onnx/user_tower_int8.onnx",
-    "bytes": 107250,
-    "compression": 3.61
+    "bytes": 124612,
+    "compression": 3.64
   },
   "benchmark": {
     "batch": 256,
     "repeats": 50,
     "fp32": {
-      "ms_per_batch": 0.1773,
-      "us_per_user": 0.69,
-      "users_per_second": 1443905
+      "ms_per_batch": 0.1925,
+      "us_per_user_amortized": 0.75,
+      "users_per_second": 1329675,
+      "single_request_us": {
+        "p50": 13.31,
+        "p95": 15.06
+      }
     },
     "int8": {
-      "ms_per_batch": 0.1261,
-      "us_per_user": 0.49,
-      "users_per_second": 2030737
+      "ms_per_batch": 0.1962,
+      "us_per_user_amortized": 0.77,
+      "users_per_second": 1304667,
+      "single_request_us": {
+        "p50": 11.65,
+        "p95": 13.23
+      }
     },
     "torch_fp32": {
-      "ms_per_batch": 32.9868,
-      "us_per_user": 128.85
+      "ms_per_batch": 31.5617,
+      "us_per_user_amortized": 123.29
     }
   },
   "equivalence": {
-    "max_abs_diff": 2.086162567138672e-07,
-    "cosine_mean": 1.0,
-    "check": "ONNX fp32 vs trained torch tower"
+    "max_abs_diff": 1.7881393432617188e-07,
+    "cosine_min": 0.9999997615814209,
+    "check": "masked mean + ONNX fp32 vs TwoTower.user_vec"
   }
 }

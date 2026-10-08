@@ -4,9 +4,14 @@
 #
 # {$DEMO_DOMAIN} is Caddy's environment-variable syntax; it is expanded at start-up.
 
+# The ACME account email is a *global* option. A bare {$ACME_EMAIL} inside the site block
+# expands to an address that Caddy then tries to parse as a directive name.
+{
+	email {$ACME_EMAIL}
+}
+
 {$DEMO_DOMAIN} {
 	encode zstd gzip
-	{$ACME_EMAIL}
 
 	# Security headers for a public demo
 	header {

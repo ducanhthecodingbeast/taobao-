@@ -51,9 +51,10 @@ Three findings that change the design:
 | Join labels x embeddings | DuckDB 1.5.6, single node | 2.0 M rows in **28.8 s** (69,491 rows/s) |
 | Same join, distributed | PySpark 4.2 `local[4]` | 500 k rows in **6.45 s** (77,533 rows/s) → 16 min extrapolated for 76 M |
 | Join safety | — | retention 99.9995 %, label rate shift < 1e-6 |
-| Ranking (best) | DIN / MUSE | AUC **0.6103 / 0.6097** vs **0.5000** popularity, 0.5615 training-free cosine |
-| Retrieval fix | two-tower + residual | Recall@10 **0.000 → 0.0153** (2.65× the cosine baseline) |
-| Demo latency | ONNX-INT8 + HNSW | tower **0.49 µs/user**, index p95 **0.0045 ms**, 99.88 % recall@10 |
+| Ranking (best) | DIN / MUSE | AUC **0.6103 / 0.6097** vs **0.461** popularity (below random), 0.5615 training-free cosine; HR@1 0.313 vs 0.238 random |
+| Retrieval fix | two-tower + residual | Recall@10 **0.000 → 0.009** (1.57× the cosine baseline) |
+| Demo quality | served path, held-out clicks | HR@10 **0.0435** (random 0.001; training-free 0.050) |
+| Demo latency | ONNX-INT8 + HNSW, one request | tower **~13 µs**, index p95 **0.033 ms**, 98.1 % recall@10 |
 | Frozen item table on GPU | torch 2.14 bf16 | 35,458,499 x 128 = **8.45 GiB**, 29.5 GiB VRAM left |
 
 ## Quickstart
@@ -70,8 +71,9 @@ export PYTHONPATH=src
 .venv/bin/python -m tmm.cli train-retrieval # T5a two-tower (GPU)
 .venv/bin/python -m tmm.cli train-ranker    # T5b DIN vs MUSE
 .venv/bin/python -m tmm.cli evaluate        # T7 metrics vs baselines
-.venv/bin/python -m tmm.cli index           # T6a FAISS recall/latency
-.venv/bin/python -m tmm.cli export-onnx     # T6a int8 user tower
+.venv/bin/python -m tmm.cli export-onnx     # T6a int8 user tower (benchmark)
+.venv/bin/python -m tmm.cli build-demo-artifact  # serving bundle: item vectors + ONNX tower, one checkpoint
+.venv/bin/python -m tmm.cli index           # T6a FAISS recall/latency (needs the bundle)
 .venv/bin/python -m tmm.cli serve-check     # T6c load test
 .venv/bin/python -m tmm.cli figures         # T8 all plots
 ```

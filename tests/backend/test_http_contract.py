@@ -115,6 +115,19 @@ def test_post_events_returns_202_with_documented_body(monkeypatch):
         assert body["mode"] == "minimal"
 
 
+def test_ids_outside_int64_are_rejected_at_the_edge(monkeypatch):
+    # an out-of-range id used to be accepted (202), poison the session and 500 /recommend
+    h = _minimal_app(monkeypatch)
+    with _client(h) as c:
+        for field in ("user_id", "item_id"):
+            ev = {"user_id": 5, "item_id": 9, "event_type": "click", field: 2**70}
+            assert c.post("/events", json=ev).status_code == 422
+        assert c.get("/recommend", params={"user_id": 2**70}).status_code == 422
+        # negative int64 ids are real anonymised ids and must stay valid
+        ok = {"user_id": -(2**63), "item_id": 2**63 - 1, "event_type": "click"}
+        assert c.post("/events", json=ok).status_code == 202
+
+
 def test_event_id_is_generated_server_side_when_absent(monkeypatch):
     h = _minimal_app(monkeypatch)
     with _client(h) as c:

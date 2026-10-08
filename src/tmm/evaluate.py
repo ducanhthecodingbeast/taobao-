@@ -56,13 +56,17 @@ def score_all(device_str: str | None = None, models: tuple[str, ...] = ("two_tow
     timings: dict[str, float] = {}
 
     # ---- baselines -------------------------------------------------------------------
-    counts = B.item_counts(tr["item"].astype(np.int64), tr["label"], tr["label"].astype(bool),
-                           vocab.size)
+    # Popularity is estimated on the TRAIN split only. An earlier version passed the
+    # arguments shifted by one (item=labels), so every test item scored 0 and the baseline
+    # reported AUC = 0.5000 exactly; another counted categories over the TEST split.
+    counts = B.item_counts(tr["user"], tr["item"].astype(np.int64), tr["label"], vocab.size)
+    cat_pos = np.bincount(tr["206"][tr["label"] == 1].astype(np.int64),
+                          minlength=cards["206"]).astype(np.float64)
     scores["random"] = B.random_baseline(len(y), SEED)
-    scores["global_pop"] = B.global_pop(counts, it)
-    scores["positive_pop"] = B.positive_pop(counts, it)
-    scores["category_pop"] = B.category_pop(
-        np.bincount(np.asarray(te["206"]), minlength=cards["206"]).astype(np.float64), te["206"])
+    # log1p keeps the counts usable as logits for LogLoss; ranks are unchanged
+    scores["global_pop"] = np.log1p(B.global_pop(counts, it))
+    scores["positive_pop"] = np.log1p(B.positive_pop(counts, it))
+    scores["category_pop"] = np.log1p(B.category_pop(cat_pos, te["206"]))
     t = time.time()
     scores["content_knn"] = B.content_knn(emb, hist, u, it)
     timings["content_knn"] = round(time.time() - t, 2)

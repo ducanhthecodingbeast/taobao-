@@ -38,7 +38,10 @@ def run(concurrency: int = 32, requests: int = 2000, k: int = 10,
     import httpx
 
     base = f"http://127.0.0.1:{port}"
-    env = {"PYTHONPATH": "src", "MPLCONFIGDIR": "/tmp/mpl"}
+    # The load generator is one client IP firing thousands of requests: lift the per-identity
+    # rate limit (default 20 rps / burst 40) or the run measures 429s, and run in dev auth.
+    env = {"PYTHONPATH": "src", "MPLCONFIGDIR": "/tmp/mpl", "TMM_API_KEYS": "",
+           "TMM_RATE_LIMIT_RPS": "1000000", "TMM_RATE_LIMIT_BURST": "1000000"}
     proc = subprocess.Popen(
         [sys.executable, "-m", "uvicorn", "tmm.serve.app:app", "--host", "127.0.0.1",
          "--port", str(port), "--log-level", "warning", "--workers", str(workers)],
@@ -57,9 +60,9 @@ def run(concurrency: int = 32, requests: int = 2000, k: int = 10,
             for _ in range(n):
                 iid = int(pool[rng.integers(0, len(pool))])
                 t0 = time.perf_counter()
-                r = await client.post(f"{base}/event", json={"user_id": uid, "item_id": iid})
+                r = await client.post(f"{base}/events", json={"user_id": uid, "item_id": iid})
                 out.append((time.perf_counter() - t0) * 1000)
-                if r.status_code != 200:
+                if r.status_code != 202:
                     raise RuntimeError(f"event {r.status_code}")
 
         async def bench(endpoint: str, total: int) -> dict:
@@ -104,7 +107,7 @@ def run(concurrency: int = 32, requests: int = 2000, k: int = 10,
 
         # warm the paths (first call includes lazy imports / JIT)
         with httpx.Client(timeout=30.0) as c:
-            c.post(f"{base}/event", json={"user_id": 1, "item_id": int(pool[0])})
+            c.post(f"{base}/events", json={"user_id": 1, "item_id": int(pool[0])})
             c.get(f"{base}/recommend", params={"user_id": 1, "k": k})
 
         res = {
@@ -126,8 +129,14 @@ def run(concurrency: int = 32, requests: int = 2000, k: int = 10,
             "note": "the /health control isolates framework overhead from model+index work; "
                     "run with --workers >1 to see whether the ceiling is the GIL",
         }
+        # /metrics is Prometheus text exposition, not JSON
+        from prometheus_client.parser import text_string_to_metric_families
+
         with httpx.Client(timeout=30.0) as c:
-            res["metrics"] = c.get(f"{base}/metrics").json()
+            text = c.get(f"{base}/metrics").text
+        res["metrics"] = {f.name: {"type": f.type, "samples": len(f.samples)}
+                          for f in text_string_to_metric_families(text)
+                          if f.name.startswith("tmm_")}
         PATHS.bench.mkdir(parents=True, exist_ok=True)
         (PATHS.bench / "serve.json").write_text(json.dumps(res, indent=2, default=str))
         return res

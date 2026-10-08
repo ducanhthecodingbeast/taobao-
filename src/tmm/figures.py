@@ -7,7 +7,7 @@ Figures produced
 03 item popularity long tail, log-log (why a popularity baseline is strong)
 04 embedding int8 histogram + per-row norm (why cosine is meaningful)
 05 two-stage funnel: catalogue -> retrieval -> ranking
-06 model comparison: AUC / NDCG@10 / HR@10 per model
+06 model comparison: AUC / NDCG@3 / HR@1 per model
 07 recall vs latency for the ANN index
 08 training curves
 09 memory footprint of the embedding table under each encoding
@@ -171,8 +171,9 @@ def fig06_models() -> str:
                          "content_knn", "two_tower", "din", "muse") if k in ev]
     fig, ax = plt.subplots(1, 3, figsize=(12, 3.4))
     for a, met, title in ((ax[0], "AUC", "(a) AUC (point-wise, 1:6.3)"),
-                          (ax[1], "NDCG@10", "(b) NDCG@10 (per-user ranking)"),
-                          (ax[2], "HR@10", "(c) HR@10 (per-user ranking)")):
+                          # HR@10 out of ~11 candidates is nearly guaranteed; @3 separates
+                          (ax[1], "NDCG@3", "(b) NDCG@3 (users with a click)"),
+                          (ax[2], "HR@1", "(c) HR@1 (users with a click)")):
         vals = [ev[m].get(met, 0) or 0 for m in order]
         cols = [C["slate"] if m in ("random",) else
                 C["amber"] if m.endswith("pop") or m == "content_knn" else C["blue"]
@@ -202,7 +203,7 @@ def fig07_index() -> str:
             ax[1].axhline(100, ls=":", c=C["slate"], label="exact = 100% recall")
             ax[1].errorbar([ex.get("p95_ms", 0)], [100], fmt="s", color=C["red"],
                            label=f"IndexFlatIP p95={ex.get('p95_ms', 0):.3f} ms")
-        ax[1].set_xlabel("p95 latency (ms)"); ax[1].set_ylabel("recall@10 (%)")
+        ax[1].set_xlabel("p95 single-query latency (ms)"); ax[1].set_ylabel("recall@10 (%)")
         ax[1].set_title("(b) Recall / latency trade-off"); ax[1].legend(fontsize=7)
     return _save(fig, "07_index_recall_latency.png")
 

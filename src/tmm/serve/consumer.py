@@ -20,7 +20,7 @@ import threading
 import time
 from typing import Any
 
-from .events import EventPublisher, build_dlq_publisher
+from .events import INT64_MAX, INT64_MIN, EventPublisher, build_dlq_publisher
 from .obs import DEFAULT_METRICS, Metrics, configure_logging, log_event, log_warning
 from .session import SessionStore, build_session_store
 from .settings import Settings, load_settings
@@ -44,7 +44,8 @@ DLQ_REASONS: tuple[str, ...] = ("decode", "schema", "store")
 
 
 def _is_int(value: Any) -> bool:
-    return isinstance(value, int) and not isinstance(value, bool)
+    return (isinstance(value, int) and not isinstance(value, bool)
+            and INT64_MIN <= value <= INT64_MAX)
 
 
 def validate_event(event: Any) -> str | None:
@@ -55,9 +56,9 @@ def validate_event(event: Any) -> str | None:
     if missing:
         return f"missing required field(s): {','.join(missing)}"
     if not _is_int(event["user_id"]):
-        return "user_id must be an int"
+        return "user_id must be an int64"
     if not _is_int(event["item_id"]):
-        return "item_id must be an int"
+        return "item_id must be an int64"
     if not isinstance(event["event_type"], str):
         return "event_type must be a str"
     return None

@@ -15,7 +15,8 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends libgomp1 curl \
  && rm -rf /var/lib/apt/lists/*
 
-# Install runtime deps only - notably NOT torch, NOT pyspark, NOT duckdb.
+# Install runtime deps only - notably NOT torch, NOT pyspark, NOT duckdb. The demo-artifact
+# serving path is numpy + onnxruntime + FAISS; only the legacy fallback needs torch.
 # kafka-python-ng backs the producer/consumer, prometheus-client the /metrics endpoint.
 RUN pip install --no-cache-dir \
       "numpy>=2.0" "pyarrow>=17" "fastapi>=0.115" "uvicorn[standard]>=0.32" \
@@ -23,10 +24,11 @@ RUN pip install --no-cache-dir \
       "onnxruntime>=1.20" "faiss-cpu>=1.9" "httpx"
 
 COPY src/ /app/src/
-COPY artifacts/models/ /app/artifacts/models/
-# `load_prepared()` / `ItemVocab` / popularity read the small generated artifacts
-# (models ~13 MB + stats ~52 KB). The multi-GB trees stay out of the image and are mounted by
-# compose: `artifacts/data/` (4.8 GB) and `TMM_DATA/feature_map` (the embedding gather).
+# The demo bundle is everything the service needs (~225 MB: reduced fp16 table, precomputed
+# item vectors, the ONNX user tower). It is gitignored, so build it first with
+# `python -m tmm.cli build-demo-artifact`. The torch checkpoints are deliberately NOT copied:
+# without torch in the image they are dead weight.
+COPY artifacts/models/demo/ /app/artifacts/models/demo/
 COPY artifacts/stats/ /app/artifacts/stats/
 
 EXPOSE 8000
@@ -36,7 +38,7 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=120s --retries=5 \
   CMD curl -fsS http://127.0.0.1:8000/livez || exit 1
 
-# One worker by default: the Recommender costs ~1.4 GB steady per process, so two workers
-# would exceed the compose 2 GB limit. Scale with TMM_WORKERS once the memory budget allows,
-# remembering that in `minimal` mode sessions/breakers/limiter are per worker.
+# One worker by default. The demo-artifact Recommender measured ~90 MB per container after
+# startup (the 210 MB table is memory-mapped and faulted in on use), so TMM_WORKERS can be
+# raised; remember that in `minimal` mode sessions/breakers/limiter are per worker.
 CMD ["sh", "-c", "exec uvicorn tmm.serve.app:app --host 0.0.0.0 --port ${TMM_PORT:-8000} --workers ${TMM_WORKERS:-1}"]
