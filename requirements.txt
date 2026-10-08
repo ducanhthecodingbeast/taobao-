@@ -24,6 +24,7 @@ redis>=5.1
 kafka-python-ng>=2.2
 prometheus-client>=0.20
 onnxruntime>=1.20
+onnx  # torch.onnx.export needs it; not pulled in by onnxruntime
 # Reporting
 matplotlib>=3.9
 seaborn>=0.13

@@ -269,3 +269,13 @@ def test_store_failures_open_the_circuit_and_send_to_dlq():
                      settings=_settings(circuit_fail_threshold=3), max_messages=6))
     assert after > before, "tmm_dlq_total{reason='store'} not incremented after store failures"
     assert any(e.get("reason") == "store" for e in dlq.published), dlq.published
+
+
+def test_out_of_int64_range_id_goes_to_dlq_with_reason_schema():
+    store = H.FakeSessionStore(backend="memory")
+    dlq = H.FakePublisher(kind="memory")
+    bad = _msg({"user_id": 1, "item_id": 2**70, "event_type": "click", "event_id": "r1"},
+               offset=0)
+    _run([bad], store=store, publisher=dlq, max_messages=1)
+    assert any(e.get("reason") == "schema" for e in dlq.published), dlq.published
+    assert store.append_calls == [], store.append_calls

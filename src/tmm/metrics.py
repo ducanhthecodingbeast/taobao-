@@ -25,57 +25,52 @@ from __future__ import annotations
 import numpy as np
 
 
-def _dcg(rank_positions: np.ndarray, k: int) -> np.ndarray:
-    """DCG of the positive items given their 0-based ranks within each user."""
-    gains = 1.0 / np.log2(rank_positions + 2.0)
-    return np.where(rank_positions < k, gains, 0.0)
-
-
 def per_user_ranking(y_true: np.ndarray, scores: np.ndarray, user_idx: np.ndarray,
-                     ks: tuple[int, ...] = (1, 3, 5, 10)) -> dict:
+                     ks: tuple[int, ...] = (1, 3, 5, 10), seed: int = 0) -> dict:
     """Group by user, rank candidates by score, return macro-averaged ranking metrics.
 
     ``user_idx`` must map every row to a contiguous user id (call :func:`factorize`).
+
+    * Only users with at least one positive are scored. A user whose candidates are all
+      negatives has no right answer; averaging their zeros in (44 % of test users) squeezes
+      every model, random included, toward the same number.
+    * Ties are broken uniformly at random with a fixed seed, never by row order, so a
+      constant scorer cannot win by the order the rows happened to be stored in.
+    * NDCG@K credits *every* positive in the top K against the ideal of ``min(#pos, K)``
+      hits, so a perfect ranking scores exactly 1.
     """
-    order = np.lexsort((-scores, user_idx))
-    u_sorted = user_idx[order]
-    y_sorted = y_true[order].astype(bool)
-    starts = np.searchsorted(u_sorted, np.arange(u_sorted[-1] + 1), side="left") \
-        if len(u_sorted) else np.zeros(0, dtype=int)
+    y = np.asarray(y_true).astype(bool)
+    n_all = int(user_idx.max()) + 1 if len(user_idx) else 0
+    tie = np.random.default_rng(seed).random(len(y))
+    order = np.lexsort((tie, -np.asarray(scores, dtype=np.float64), user_idx))
+    u, ys = user_idx[order], y[order]
+    starts = np.searchsorted(u, np.arange(n_all), side="left")
+    rank = np.arange(len(u)) - starts[u]                  # 0-based rank inside the user
+    n_pos = np.bincount(u[ys], minlength=n_all)
+    has = n_pos > 0
+    first = np.full(n_all, np.inf)
+    np.minimum.at(first, u[ys], rank[ys])
+    first = first[has]
 
-    n_users = len(starts)
-    # rank of each row inside its user block
-    rank_in_user = np.arange(len(u_sorted)) - starts[u_sorted]
-
-    # first positive rank per user (np.inf when a user has no positive)
-    pos_rank = np.full(n_users, np.inf)
-    sel = y_sorted
-    if sel.any():
-        np.minimum.at(pos_rank, u_sorted[sel], rank_in_user[sel])
-
-    hit = np.isfinite(pos_rank)
     out: dict = {
-        "n_users": int(n_users),
-        "n_rows": int(len(y_true)),
-        "rows_per_user_mean": round(len(y_true) / max(n_users, 1), 3),
-        "users_with_a_positive": int(hit.sum()),
-        "users_with_a_positive_rate": round(float(hit.mean()), 4) if n_users else 0.0,
-        "candidate_set_size": round(len(y_true) / max(n_users, 1), 3),
+        "n_users": int(has.sum()),
+        "n_users_total": int(n_all),
+        "n_rows": int(len(y)),
+        "rows_per_user_mean": round(len(y) / max(n_all, 1), 3),
+        "users_with_a_positive": int(has.sum()),
+        "users_with_a_positive_rate": round(float(has.mean()), 4) if n_all else 0.0,
+        "candidate_set_size": round(len(y) / max(n_all, 1), 3),
     }
+    if not has.any():
+        return out
+    ideal = np.cumsum(1.0 / np.log2(np.arange(max(ks)) + 2.0))
     for k in ks:
-        out[f"HR@{k}"] = round(float(np.mean(hit & (pos_rank < k))), 5)
-        dcg = _dcg(pos_rank, k)
-        # ideal DCG: the best k candidates are positive (IDCG = sum over min(k, #pos) hits)
-        n_pos = np.bincount(u_sorted[y_sorted], minlength=n_users) if sel.any() else np.zeros(n_users)
-        m = np.minimum(n_pos, k)
-        idcg = np.array([sum(1.0 / np.log2(j + 2.0) for j in range(int(mm))) for mm in m])
-        with np.errstate(divide="ignore", invalid="ignore"):
-            ndcg = np.where(idcg > 0, dcg / idcg, 0.0)
-        out[f"NDCG@{k}"] = round(float(np.mean(ndcg)), 5)
-    # MRR over users that have a positive
-    mrr = np.where(hit, 1.0 / (pos_rank + 1.0), 0.0)
-    out["MRR"] = round(float(np.mean(mrr)), 5)
-    out["MRR_hit_users_only"] = round(float(mrr[hit].mean()), 5) if hit.any() else 0.0
+        top = ys & (rank < k)
+        dcg = np.bincount(u[top], weights=1.0 / np.log2(rank[top] + 2.0), minlength=n_all)[has]
+        idcg = ideal[np.minimum(n_pos[has], k) - 1]
+        out[f"HR@{k}"] = round(float(np.mean(first < k)), 5)
+        out[f"NDCG@{k}"] = round(float(np.mean(dcg / idcg)), 5)
+    out["MRR"] = round(float(np.mean(1.0 / (first + 1.0))), 5)
     return out
 
 

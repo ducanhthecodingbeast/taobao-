@@ -16,6 +16,10 @@ from typing import Any, Protocol
 
 from .obs import DEFAULT_METRICS, Metrics, log_warning
 
+#: Anonymised ids are arbitrary int64 values, negatives included. Anything outside that range
+#: cannot be stored (Redis encodes ids as int64) or looked up, so it is rejected at the edge.
+INT64_MIN, INT64_MAX = -(2**63), 2**63 - 1
+
 try:  # kafka is optional at import time; a missing install must not break the API
     from kafka import KafkaProducer
 except Exception:  # noqa: BLE001 - any import failure means "no broker available"

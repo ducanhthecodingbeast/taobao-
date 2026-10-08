@@ -4,35 +4,36 @@
   "device": "cuda",
   "epochs": 3,
   "batch_size": 2048,
-  "steps": 2922,
-  "rows": 1993300,
+  "steps": 402,
+  "rows": 274206,
   "lr": 0.003,
   "dim": 128,
   "seq_len": 1000,
-  "train_seconds": 30.9,
-  "rows_per_second": 193304,
+  "train_seconds": 5.7,
+  "rows_per_second": 143987,
   "params_trainable": 588241,
+  "residual": false,
   "params_frozen": 4538687872,
   "emb_table_gib": 8.45,
   "vram_peak_gib": 16.91,
   "history": [
     {
       "epoch": 0,
-      "loss": 6.93513,
-      "seconds": 10.3,
-      "steps": 974
+      "loss": 7.73159,
+      "seconds": 2.7,
+      "steps": 134
     },
     {
       "epoch": 1,
-      "loss": 6.23767,
-      "seconds": 20.6,
-      "steps": 974
+      "loss": 6.9172,
+      "seconds": 4.2,
+      "steps": 134
     },
     {
       "epoch": 2,
-      "loss": 6.09844,
-      "seconds": 30.9,
-      "steps": 974
+      "loss": 6.59828,
+      "seconds": 5.7,
+      "steps": 134
     }
   ],
   "checkpoint": "/home/aiface/dangnguyenducanh/taobao proj/artifacts/models/two_tower_ss.pt"

@@ -72,3 +72,10 @@ jobs:
       # Static validation only: a real image build needs the 212 MB artifact tree, which is
       # not committed. This still catches YAML/profile/depends_on mistakes in the demo stack.
       - run: docker compose -f docker/docker-compose.yml config --quiet
+      # The Caddyfile used to fail to parse (bare email inside the site block) and nothing
+      # caught it, because compose config never reads it.
+      - name: caddy validate
+        run: |
+          docker run --rm -e DEMO_DOMAIN=demo.example.com -e ACME_EMAIL=ci@example.com \
+            -v "$PWD/docker/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2-alpine \
+            caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile

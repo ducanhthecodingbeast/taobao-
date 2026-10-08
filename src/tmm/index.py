@@ -58,54 +58,29 @@ def catalogue_items(vocab, n_items: int, mode: str = "popular") -> np.ndarray:
     return rng.choice(size - 1, size=n_items, replace=False).astype(np.int64)
 
 
-def build_item_vectors(n_items: int = 10_000) -> tuple[np.ndarray, np.ndarray]:
-    """Item-tower vectors for the demo catalogue (float32, L2-normalised for inner product)."""
-    import torch
+def run(n_items: int = 10_000, exact: bool = True, n_queries: int = 2000,
+        ef_sweep: tuple[int, ...] = (16, 32, 64, 128, 256)) -> dict:
+    """Benchmark the index the service actually builds, queried the way it is queried.
 
-    from .models import TwoTower
-    from .train import build_emb_table, load_prepared
+    * item vectors: the demo artifact's (the served search space)
+    * queries: **real user vectors** from held-out test sessions, not catalogue items. Querying
+      with indexed items made every query trivially find itself and inflated HNSW recall.
+    * latency: one query per call, as a request issues it; the batched figure is reported
+      separately as amortised throughput, never as a latency.
+    """
+    from .serve.app import Recommender
 
-    d = load_prepared("cpu")
-    vocab, cards = d["vocab"], d["cards"]
-    items = catalogue_items(vocab, n_items)          # vocabulary indices
-    # float16 on CPU: 9.1 GiB instead of 18.2 GiB fp32. The towers cast to fp32 after the
-    # gather, so storage dtype and compute dtype are decoupled.
-    emb = build_emb_table(vocab, "cpu", dtype=torch.float16)
-
-    # Prefer the residual checkpoint: the plain pointwise one has a collapsed item space
-    # (pairwise cosine 0.966) and therefore produces a useless index. See retrieval_ablation.
-    ck_path = next((p for p in (PATHS.models / "two_tower_res.pt",
-                                PATHS.models / "two_tower.pt") if p.exists()),
-                   PATHS.models / "two_tower.pt")
-    if ck_path.exists():
-        ck = torch.load(ck_path, map_location="cpu", weights_only=False)
-        model = TwoTower(emb, cat_card=cards["206"],
-                         demo_cards=[cards[c] for c in
-                                     ("130_1", "130_2", "130_3", "130_4", "130_5")],
-                         dim=ck["dim"], tower_seq_len=200,
-                         residual=bool(ck.get("residual", False)))
-        model.load_state_dict(ck["state_dict"])
-        model.eval()
-    else:                                     # fall back to the raw SCL table
-        model = None
-
-    with torch.no_grad():
-        t = torch.from_numpy(items)
-        c = torch.zeros_like(t)
-        if model is not None:
-            v = model.item_vec(t, c)
-        else:
-            v = torch.nn.functional.normalize(emb[t].float(), dim=-1)
-    return items, v.numpy().astype(np.float32)
-
-
-def run(n_items: int = 10_000, exact: bool = True, seed: int = 42,
-        n_queries: int = 2000, ef_sweep: tuple[int, ...] = (16, 32, 64, 128, 256)) -> dict:
     faiss = _faiss()
-    faiss.omp_set_num_threads(8)
-    items, vecs = build_item_vectors(n_items)
+    faiss.omp_set_num_threads(1)
+    rec = Recommender(n_items=n_items)
+    if rec.artifact is None:
+        raise RuntimeError("demo artifact missing; run `python -m tmm.cli build-demo-artifact`")
+    vecs = np.ascontiguousarray(rec.artifact.item_vecs[:n_items], dtype=np.float32)
+    items = rec.item_ids
     d = vecs.shape[1]
-    Q = np.ascontiguousarray(vecs[:min(n_queries, len(vecs))])
+    sessions, _ = rec.artifact.eval_sessions()
+    Q = np.stack([rec.user_vector(sess) for sess in sessions[:n_queries]])
+    Q = np.ascontiguousarray(Q[np.any(Q, axis=1)], dtype=np.float32)
 
     # ---- exact ground truth ----------------------------------------------------------
     t0 = time.time()
@@ -115,7 +90,9 @@ def run(n_items: int = 10_000, exact: bool = True, seed: int = 42,
     D_gt, I_gt = flat.search(Q, 10)
 
     res: dict = {
-        "n_items": int(len(items)), "dim": int(d),
+        "n_items": int(len(items)), "dim": int(d), "n_queries": int(len(Q)),
+        "queries": "user vectors of held-out test sessions (demo artifact eval set)",
+        "item_vectors": f"demo artifact ({rec.artifact.space})",
         "exact": {
             "index": "IndexFlatIP", "build_seconds": round(t_flat_build, 4),
             "bytes": int(flat.ntotal * d * 4),
@@ -133,7 +110,7 @@ def run(n_items: int = 10_000, exact: bool = True, seed: int = 42,
 
     # ---- HNSW ------------------------------------------------------------------------
     t0 = time.time()
-    hnsw = faiss.IndexHNSWFlat(d, 32)
+    hnsw = faiss.IndexHNSWFlat(d, 32, faiss.METRIC_INNER_PRODUCT)
     hnsw.hnsw.efConstruction = 200
     hnsw.add(vecs)
     t_hnsw_build = time.time() - t0
@@ -162,18 +139,24 @@ def run(n_items: int = 10_000, exact: bool = True, seed: int = 42,
     return res
 
 
-def _latency(fn, Q: np.ndarray, repeats: int = 3) -> dict:
+def _latency(fn, Q: np.ndarray) -> dict:
+    """Per-request latency: each query is issued alone, as ``/recommend`` issues it."""
+    for q in Q[:50]:                                   # warm-up
+        fn(q[None, :])
     times = []
-    for _ in range(repeats):
+    for q in Q:
         t0 = time.perf_counter()
-        fn(Q)
-        times.append((time.perf_counter() - t0) / len(Q) * 1000)
+        fn(q[None, :])
+        times.append((time.perf_counter() - t0) * 1000)
     a = np.asarray(times)
+    t0 = time.perf_counter()
+    fn(Q)
+    amortised = (time.perf_counter() - t0) / len(Q) * 1000
     return {"p50_ms": round(float(np.median(a)), 4),
             "p95_ms": round(float(np.percentile(a, 95)), 4),
             "p99_ms": round(float(np.percentile(a, 99)), 4),
-            "qps": int(1000 / max(a.mean(), 1e-9)),
-            "repeats": repeats, "batch_size": int(len(Q))}
+            "qps": int(1000 / max(a.mean(), 1e-9)), "queries": int(len(Q)),
+            "batch_amortised_ms_per_query": round(amortised, 5)}
 
 
 def memory_table(n_items: int = 10_000) -> list[dict]:

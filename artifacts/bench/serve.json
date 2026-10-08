@@ -1,58 +1,117 @@
 {
   "health": {
-    "status": "ok",
+    "status": "degraded",
+    "mode": "minimal",
     "session_backend": "memory",
     "index_version": "v1",
     "catalogue": 10000,
     "index_mb": 7.32,
-    "embedding_table_mb": 212.6,
+    "embedding_table_mb": 210.2,
     "user_tower": "onnx",
-    "uptime_s": 0.9
+    "uptime_s": 0.1,
+    "kafka": false,
+    "redis": false,
+    "kafka_status": "unavailable",
+    "redis_status": "unavailable",
+    "circuits": {
+      "redis": "closed",
+      "kafka": "closed"
+    },
+    "events": 0,
+    "recommends": 0,
+    "errors": 0
   },
-  "workers": 2,
+  "workers": 1,
   "control_health": {
     "requests": 1984,
     "concurrency": 32,
-    "p50_ms": 25.661,
-    "p95_ms": 106.752,
-    "p99_ms": 154.218,
-    "max_ms": 350.455,
-    "mean_ms": 37.324,
-    "rps": 857.4
+    "p50_ms": 26.284,
+    "p95_ms": 104.204,
+    "p99_ms": 163.678,
+    "max_ms": 265.906,
+    "mean_ms": 37.313,
+    "rps": 857.6
   },
   "event": {
     "requests": 1984,
     "concurrency": 32,
-    "p50_ms": 26.344,
-    "p95_ms": 126.112,
-    "p99_ms": 198.728,
-    "max_ms": 314.193,
-    "mean_ms": 41.83,
-    "rps": 765.0
+    "p50_ms": 25.943,
+    "p95_ms": 128.922,
+    "p99_ms": 199.534,
+    "max_ms": 385.732,
+    "mean_ms": 41.246,
+    "rps": 775.8
   },
   "recommend": {
     "requests": 1984,
     "concurrency": 32,
-    "p50_ms": 27.078,
-    "p95_ms": 123.889,
-    "p99_ms": 196.34,
-    "max_ms": 332.23,
-    "mean_ms": 41.406,
-    "rps": 772.8
+    "p50_ms": 27.354,
+    "p95_ms": 124.56,
+    "p99_ms": 208.996,
+    "max_ms": 316.57,
+    "mean_ms": 41.197,
+    "rps": 776.7
   },
   "k": 10,
   "verdict": {
-    "p95_ms": 123.889,
-    "control_p95_ms": 106.752,
-    "inference_overhead_p50_ms": 1.417,
+    "p95_ms": 124.56,
+    "control_p95_ms": 104.204,
+    "inference_overhead_p50_ms": 1.07,
     "p95_under_20ms": false,
     "note": "the /health control isolates framework overhead from model+index work; run with --workers >1 to see whether the ceiling is the GIL"
   },
   "metrics": {
-    "events": 86,
-    "recommends": 845,
-    "errors": 0,
-    "started": 1791360674.4208357,
-    "uptime_s": 8.8
+    "tmm_http_requests": {
+      "type": "counter",
+      "samples": 4
+    },
+    "tmm_http_requests_created": {
+      "type": "gauge",
+      "samples": 4
+    },
+    "tmm_http_request_duration_seconds": {
+      "type": "histogram",
+      "samples": 68
+    },
+    "tmm_http_request_duration_seconds_created": {
+      "type": "gauge",
+      "samples": 4
+    },
+    "tmm_stage_duration_seconds": {
+      "type": "histogram",
+      "samples": 85
+    },
+    "tmm_stage_duration_seconds_created": {
+      "type": "gauge",
+      "samples": 5
+    },
+    "tmm_events_ingested": {
+      "type": "counter",
+      "samples": 2
+    },
+    "tmm_events_ingested_created": {
+      "type": "gauge",
+      "samples": 2
+    },
+    "tmm_kafka_publish": {
+      "type": "counter",
+      "samples": 0
+    },
+    "tmm_dlq": {
+      "type": "counter",
+      "samples": 0
+    },
+    "tmm_circuit_state": {
+      "type": "gauge",
+      "samples": 2
+    },
+    "tmm_rate_limited": {
+      "type": "counter",
+      "samples": 0
+    },
+    "tmm_ready": {
+      "type": "gauge",
+      "samples": 1
+    }
   }
 }

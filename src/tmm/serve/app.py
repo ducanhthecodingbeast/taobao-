@@ -51,7 +51,6 @@ import logging
 import math
 import os
 import time
-import warnings
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -60,10 +59,10 @@ from typing import Any
 import numpy as np
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from prometheus_client import CollectorRegistry
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ..config import BUDGET, PATHS
-from .events import EventPublisher, build_publisher
+from .events import INT64_MAX, INT64_MIN, EventPublisher, build_publisher
 from .obs import (
     CONTENT_TYPE_LATEST,
     Metrics,
@@ -81,6 +80,7 @@ from .settings import Settings, load_settings
 INDEX_VERSION = "v1"
 SESSION_MAX = 50
 TOWER_SEQ = 200
+DEMO_COLS = ("130_1", "130_2", "130_3", "130_4", "130_5")
 
 logger = logging.getLogger("tmm.serve.app")
 
@@ -95,24 +95,28 @@ class Recommender:
 
     * **artifact** (preferred, ``use_demo_artifact=True``): everything comes from the
       precomputed ``artifacts/models/demo/`` bundle -- memory-flat, no memmap over the 4.5 GB
-      embedding table and no 35.46 M-entry vocabulary. Measured peak RSS ~0.7 GB.
+      embedding table, no 35.46 M-entry vocabulary and **no torch**: item vectors are
+      precomputed and the user tower is the bundle's ONNX graph. Measured peak RSS ~0.7 GB.
     * **legacy** (fallback): builds the reduced table from the raw feature map via
-      ``load_prepared`` + ``load_embeddings_subset``. Correct but peaks at ~7 GB, which is why
-      the artifact exists. Used when the bundle is absent or a bigger catalogue is requested.
+      ``load_prepared`` + ``load_embeddings_subset`` and runs the torch tower. Correct but
+      peaks at ~7 GB, which is why the artifact exists.
+
+    Either way the index and the query come from the **same** space: both from one trained
+    checkpoint, or both raw SCL. Mixing them (raw SCL items, trained user tower) is what made
+    an earlier version recommend at random level.
     """
 
-    def __init__(self, n_items: int = BUDGET.demo_items, use_onnx: bool = True,
-                 use_demo_artifact: bool = True):
+    def __init__(self, n_items: int = BUDGET.demo_items, use_demo_artifact: bool = True):
         import faiss
-        import torch
 
-        self.torch = torch
         self.n_items = n_items
         self.artifact: Any = None
         self.row_of: np.ndarray | None = None
         self.d: Any = None
         self.vocab: Any = None
         self.cards: dict[str, int] = {}
+        self.tower: Any = None
+        self.onnx_session: Any = None
 
         from .. import demo_artifact
 
@@ -125,75 +129,75 @@ class Recommender:
         if artifact is not None:
             self.artifact = artifact
             take = int(n_items)
-            # `ascontiguousarray` on the C-contiguous memmap returns it as-is: no 220 MB copy,
-            # the table stays lazily faulted in. torch warns once that the resulting tensor is
-            # not writable; that is safe here because the inference path only reads it -- the
-            # checkpoint exposes 21 keys and none of them is the embedding table, so
-            # `load_state_dict` never writes into `self.emb`. The warning is suppressed so it
-            # cannot pollute startup logs or the memory-measurement output.
-            with warnings.catch_warnings():
-                warnings.filterwarnings(
-                    "ignore", message="The given NumPy array is not writable")
-                self.emb = torch.from_numpy(np.ascontiguousarray(artifact.emb))
+            self.emb = artifact.emb                                   # fp16 memmap
             self.pad_row = artifact.pad_row
-            self.items = artifact.item_rows[:take].astype(np.int64)   # rows into self.emb
             self.item_ids = artifact.item_ids[:take]                  # raw ids for the API
-            self.item_cats = artifact.item_cats[:take]                # 100% real categories
-            self.dim = artifact.dim
-            # `cards` must still match the trained checkpoint; the small JSON is enough, so
-            # load_prepared() (and its 1.5 GB) is skipped entirely.
-            self.cards = dict(json.loads(
-                (PATHS.stats / "prepare.json").read_text())["cardinalities"])
-            self.emb_mb = round(self.emb.numel() * self.emb.element_size() / 2**20, 1)
-            rows = torch.from_numpy(self.items.astype(np.int64))
-            cats = torch.from_numpy(self.item_cats.astype(np.int64))
+            self.emb_mb = round(self.emb.nbytes / 2**20, 1)
+            self.default_demo = artifact.default_demo
+            vecs = artifact.item_vecs[:take]
+            if artifact.onnx_path is not None:
+                import onnxruntime as ort
+
+                so = ort.SessionOptions()
+                so.intra_op_num_threads = 1      # one user per request; threads only contend
+                self.onnx_session = ort.InferenceSession(str(artifact.onnx_path), so,
+                                                         providers=["CPUExecutionProvider"])
         else:
-            from ..index import catalogue_items
-            from ..train import load_prepared
-            from ..vocab import load_embeddings_subset
+            vecs = self._load_legacy(n_items)
+        self.dim = int(vecs.shape[1])
 
-            self.d = load_prepared("cpu")
-            self.vocab, self.cards = self.d["vocab"], self.d["cards"]
-
-            self.items = catalogue_items(self.vocab, n_items)      # VOCABULARY indices
-            cat_of_item = self._item_categories(self.items)
-
-            # reduced table: catalogue + anything that can appear in a session
-            extra = np.unique(np.concatenate([self.d["train"]["item"], self.d["test"]["item"]]))
-            self.keep = np.unique(np.concatenate([self.items, extra]))
-            self.row_of = np.full(len(self.vocab.ids) + 1, -1, dtype=np.int32)
-            self.row_of[self.keep] = np.arange(len(self.keep), dtype=np.int32)
-            self.pad_row = len(self.keep)                          # reserved all-zero row
-            self.emb = torch.from_numpy(load_embeddings_subset(self.vocab, self.keep))
-            self.emb_mb = round(self.emb.numel() * self.emb.element_size() / 2**20, 1)
-            self.item_ids = self.vocab.decode(self.items)          # raw ids for the API
-            rows = torch.from_numpy(self.row_of[self.items].astype(np.int64))
-            cats = torch.from_numpy(cat_of_item)
-
-        self.tower = self._user_tower(use_onnx)
-        self.onnx_session = getattr(self, "onnx_session", None)
-
-        # item vectors: trained tower when available, frozen SCL otherwise
-        with torch.no_grad():
-            if self.tower is not None:
-                vecs = self.tower.item_vec(rows, cats).float().numpy()
-            else:
-                import torch.nn.functional as F
-
-                vecs = F.normalize(self.emb[rows].float(), dim=-1).numpy()
-        self.dim = vecs.shape[1]
-
-        faiss.omp_set_num_threads(4)
-        self.index = faiss.IndexHNSWFlat(self.dim, 32)
+        faiss.omp_set_num_threads(1)
+        # inner product on L2-normalised vectors = cosine, so higher score = better match
+        self.index = faiss.IndexHNSWFlat(self.dim, 32, faiss.METRIC_INNER_PRODUCT)
         self.index.hnsw.efConstruction = 200
         self.index.hnsw.efSearch = 64
-        self.index.add(np.ascontiguousarray(vecs.astype(np.float32)))
+        self.index.add(np.ascontiguousarray(vecs, dtype=np.float32))
         self.index_bytes = int(self.index.ntotal * self.dim * 4 + self.index.ntotal * 32 * 2 * 4)
 
         self.version = INDEX_VERSION
         self.item_pop = self._popularity()
 
     # -- setup helpers ----------------------------------------------------------------
+    def _load_legacy(self, n_items: int) -> np.ndarray:
+        import torch
+
+        from ..export_onnx import serving_checkpoint
+        from ..index import catalogue_items
+        from ..models import TwoTower
+        from ..train import load_prepared
+        from ..vocab import load_embeddings_subset
+
+        self.d = load_prepared("cpu")
+        self.vocab, self.cards = self.d["vocab"], self.d["cards"]
+        items = catalogue_items(self.vocab, n_items)                  # VOCABULARY indices
+        cats = torch.from_numpy(self._item_categories(items))
+
+        # reduced table: catalogue + anything that can appear in a session
+        extra = np.unique(np.concatenate([self.d["train"]["item"], self.d["test"]["item"]]))
+        keep = np.unique(np.concatenate([items, extra]))
+        self.row_of = np.full(len(self.vocab.ids) + 1, -1, dtype=np.int32)
+        self.row_of[keep] = np.arange(len(keep), dtype=np.int32)
+        self.pad_row = len(keep)                                      # reserved all-zero row
+        self.emb = torch.from_numpy(load_embeddings_subset(self.vocab, keep))
+        self.emb_mb = round(self.emb.numel() * self.emb.element_size() / 2**20, 1)
+        self.item_ids = self.vocab.decode(items)                      # raw ids for the API
+        self.default_demo = np.asarray(
+            [int(np.bincount(self.d["train"][c].astype(np.int64)).argmax()) for c in DEMO_COLS],
+            dtype=np.int64)
+        rows = torch.from_numpy(self.row_of[items].astype(np.int64))
+
+        ck_path = serving_checkpoint()
+        with torch.no_grad():
+            if ck_path is None:                                       # raw SCL on both sides
+                return torch.nn.functional.normalize(self.emb[rows].float(), dim=-1).numpy()
+            ck = torch.load(ck_path, map_location="cpu", weights_only=False)
+            self.tower = TwoTower(self.emb, cat_card=self.cards["206"],
+                                  demo_cards=[self.cards[c] for c in DEMO_COLS],
+                                  dim=ck["dim"], tower_seq_len=TOWER_SEQ,
+                                  residual=bool(ck.get("residual", False)))
+            self.tower.load_state_dict(ck["state_dict"])
+            return self.tower.eval().item_vec(rows, cats).float().numpy()
+
     def _item_categories(self, items: np.ndarray) -> np.ndarray:
         """Real category index for each catalogue item (never a constant feature)."""
         all_items = np.concatenate([self.d["train"]["item"], self.d["test"]["item"]])
@@ -202,38 +206,6 @@ class Recommender:
         pos = np.clip(np.searchsorted(uniq, items), 0, len(uniq) - 1)
         hit = uniq[pos] == items
         return np.where(hit, all_cats[first[pos]], self.cards["206"] - 1).astype(np.int64)
-
-    def _user_tower(self, use_onnx: bool):
-        import torch
-
-        self.onnx_session = None
-        p = PATHS.models / "onnx" / "user_tower_fp32.onnx"
-        if use_onnx and p.exists():
-            try:
-                import onnxruntime as ort
-
-                so = ort.SessionOptions()
-                so.intra_op_num_threads = 4
-                self.onnx_session = ort.InferenceSession(str(p), so,
-                                                         providers=["CPUExecutionProvider"])
-                return None
-            except Exception:
-                self.onnx_session = None
-
-        from ..models import TwoTower
-
-        ck_path = next((q for q in (PATHS.models / "two_tower_res.pt",
-                                    PATHS.models / "two_tower.pt") if q.exists()), None)
-        if ck_path is None:
-            return None
-        ck = torch.load(ck_path, map_location="cpu", weights_only=False)
-        m = TwoTower(self.emb, cat_card=self.cards["206"],
-                     demo_cards=[self.cards[c] for c in
-                                 ("130_1", "130_2", "130_3", "130_4", "130_5")],
-                     dim=ck["dim"], tower_seq_len=TOWER_SEQ,
-                     residual=bool(ck.get("residual", False)))
-        m.load_state_dict(ck["state_dict"])
-        return m.eval()
 
     def _popularity(self) -> dict[int, float]:
         """Cold-start fallback keyed by RAW item id."""
@@ -258,29 +230,31 @@ class Recommender:
         if vocab is None or row_of is None:  # pragma: no cover - defensive
             raise RuntimeError("Recommender has neither a demo artifact nor a vocabulary")
         idx = vocab.encode(np.asarray(item_ids, dtype=np.int64))
-        rows = np.where(idx == vocab.pad_index, self.pad_row, row_of[idx])
-        return rows.astype(np.int64)
+        rows = np.where(idx == vocab.pad_index, -1, row_of[idx])
+        return np.where(rows < 0, self.pad_row, rows).astype(np.int64)
 
     def user_vector(self, session: list[int]) -> np.ndarray:
-        import torch
-        import torch.nn.functional as F
+        """Masked mean of the session's embeddings, then the user tower.
 
-        if not session:
-            return np.zeros(self.dim, dtype=np.float32)
+        Unknown items are dropped (they are the padding row in training too). The mean is fed
+        **un-normalised**, exactly as :meth:`tmm.models.TwoTower.user_vec` pools it.
+        """
         rows = self.rows_for(session[-TOWER_SEQ:])
-        if self.onnx_session is not None:
-            hist_mean = self.emb[torch.from_numpy(rows)].float().mean(0)
-            hv = F.normalize(hist_mean, dim=-1)[None, :].numpy()
-            demo = np.zeros((1, 5), dtype=np.int64)
-            return self.onnx_session.run(["user_vec"],
-                                         {"hist_vec": hv, "demo": demo})[0][0].astype(np.float32)
+        rows = rows[rows != self.pad_row]
+        if not len(rows):
+            return np.zeros(self.dim, dtype=np.float32)
         if self.tower is not None:
+            import torch
+
             with torch.no_grad():
-                h = torch.from_numpy(rows)[None, :]
-                demo_t = torch.zeros(1, 5, dtype=torch.long)
-                return self.tower.user_vec(h, demo_t)[0].numpy()
-        with torch.no_grad():
-            return F.normalize(self.emb[torch.from_numpy(rows)].float().mean(0), dim=-1).numpy()
+                return self.tower.user_vec(torch.from_numpy(rows)[None, :],
+                                           torch.from_numpy(self.default_demo)[None, :])[0].numpy()
+        pooled = np.asarray(self.emb[rows], dtype=np.float32).mean(0)
+        if self.onnx_session is not None:
+            return self.onnx_session.run(
+                ["user_vec"], {"hist_vec": pooled[None, :],
+                               "demo": self.default_demo[None, :]})[0][0].astype(np.float32)
+        return pooled / (np.linalg.norm(pooled) + 1e-12)
 
     def sample_item_ids(self, n: int = 200, seed: int = 0) -> list[int]:
         rng = np.random.default_rng(seed)
@@ -326,8 +300,8 @@ class Recommender:
 # ``loc: ["query", "ev"]`` -- which is exactly what happened here before the move.
 # --------------------------------------------------------------------------------------
 class EventIn(BaseModel):
-    user_id: int
-    item_id: int
+    user_id: int = Field(ge=INT64_MIN, le=INT64_MAX)
+    item_id: int = Field(ge=INT64_MIN, le=INT64_MAX)
     event_type: str = "click"
     event_id: str | None = None
     ts: str | None = None
@@ -673,7 +647,7 @@ def create_app(
             return rec.recommend(session, k=kk)
 
     @app.get("/recommend", response_model=list[Rec])
-    def recommend(user_id: int = Query(...), k: int = Query(10, ge=1, le=50),
+    def recommend(user_id: int = Query(..., ge=INT64_MIN, le=INT64_MAX), k: int = Query(10, ge=1, le=50),
                   _key: str = Depends(guard)) -> list[dict[str, Any]]:
         """Plain ``def`` on purpose: FastAPI runs it in the threadpool so the CPU-bound
         ONNX/FAISS work cannot block the event loop."""

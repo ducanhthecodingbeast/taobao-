@@ -167,3 +167,58 @@ def test_cold_start_user_still_gets_recommendations(real_app):
         r = client.get("/recommend", params={"user_id": 999_999_999, "k": 5})
     assert r.status_code == 200, r.text
     assert len(r.json()) == 5
+
+
+# ======================================================================================
+# recommendation quality: the served query and the index must share one vector space
+# ======================================================================================
+def _hit_rate(index, item_ids, queries, targets, k: int = 10) -> float:
+    import numpy as np
+
+    _, top = index.search(np.ascontiguousarray(queries, dtype=np.float32), k)
+    found = [int(t) in {int(item_ids[j]) for j in row if j >= 0}
+             for row, t in zip(top, targets, strict=True)]
+    return float(np.mean(found))
+
+
+@pytest.mark.skipif(not HAS_DEMO, reason="artifacts/models/demo is not built in this checkout")
+def test_served_recommendations_find_held_out_clicks():
+    """HR@10 on held-out test clicks, through the exact serving code path.
+
+    The service once indexed raw SCL item vectors while querying with a trained user tower
+    from a different checkpoint. Every other test still passed; HR@10 was 0.0015 against a
+    random 0.001. This test fails on that class of bug. It also compares against the
+    training-free baseline (mean of the session's raw embeddings, searched over raw item
+    embeddings) so a tower that is worse than no model at all is visible.
+    """
+    import faiss
+    import numpy as np
+
+    from tmm.serve.app import Recommender
+
+    rec = Recommender(n_items=10_000)
+    sessions, targets = rec.artifact.eval_sessions()
+    assert len(sessions) >= 500, "eval set too small to say anything"
+
+    served = _hit_rate(rec.index, rec.item_ids,
+                       np.stack([rec.user_vector(s) for s in sessions]), targets)
+
+    raw_items = np.asarray(rec.emb[rec.artifact.item_rows[:10_000]], dtype=np.float32)
+    raw_items /= np.linalg.norm(raw_items, axis=1, keepdims=True) + 1e-12
+    flat = faiss.IndexFlatIP(raw_items.shape[1])
+    flat.add(raw_items)
+    raw_q = []
+    for s in sessions:
+        rows = rec.rows_for(s)
+        v = np.asarray(rec.emb[rows[rows != rec.pad_row]], dtype=np.float32).mean(0)
+        raw_q.append(v / (np.linalg.norm(v) + 1e-12))
+    baseline = _hit_rate(flat, rec.item_ids, np.stack(raw_q), targets)
+
+    random_hr = 10 / 10_000
+    print(f"[measured] HR@10 served={served:.4f} raw-SCL baseline={baseline:.4f} "
+          f"random={random_hr:.4f} ({rec.artifact.space})")
+    assert served > 10 * random_hr, (
+        f"served HR@10 {served:.4f} is near random ({random_hr}); are the user tower and the "
+        "indexed item vectors from the same checkpoint?")
+    assert served >= 0.8 * baseline, (
+        f"served HR@10 {served:.4f} is well below the training-free baseline {baseline:.4f}")

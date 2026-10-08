@@ -102,6 +102,31 @@ def test_per_user_ranking_is_macro_averaged():
     assert r["MRR"] == pytest.approx((1.0 + 0.25) / 2)
 
 
+def test_ndcg_of_a_perfect_ranking_is_one_with_several_positives():
+    y = np.array([1, 1, 0, 0], dtype=np.int8)
+    r = per_user_ranking(y, np.array([4.0, 3.0, 2.0, 1.0]), np.zeros(4, dtype=np.int64),
+                         ks=(1, 3))
+    assert r["NDCG@1"] == pytest.approx(1.0)
+    assert r["NDCG@3"] == pytest.approx(1.0)
+
+
+def test_ties_are_not_broken_by_row_order():
+    # every user's positive is stored first; a constant scorer must not get HR@1 = 1
+    n_users = 3000
+    y = np.tile(np.array([1, 0, 0], dtype=np.int8), n_users)
+    user = np.repeat(np.arange(n_users), 3)
+    r = per_user_ranking(y, np.zeros(len(y)), user, ks=(1,))
+    assert r["HR@1"] == pytest.approx(1 / 3, abs=0.03)
+
+
+def test_users_without_a_positive_are_not_scored():
+    y = np.array([1, 0, 0, 0], dtype=np.int8)
+    user = np.array([0, 0, 1, 1])
+    r = per_user_ranking(y, np.array([2.0, 1.0, 2.0, 1.0]), user, ks=(1,))
+    assert r["n_users"] == 1 and r["n_users_total"] == 2
+    assert r["HR@1"] == pytest.approx(1.0)
+
+
 def test_classification_auc_perfect_and_random():
     y = np.array([0, 0, 1, 1], dtype=np.int8)
     assert classification(y, np.array([-2.0, -1.0, 1.0, 2.0]))["AUC"] == pytest.approx(1.0)

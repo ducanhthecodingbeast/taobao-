@@ -114,11 +114,23 @@ def train_two_tower(epochs: int = 3, batch_size: int = 512, dim: int = 128,
                      dim=dim, tower_seq_len=200, residual=residual).to(device_str)
     opt = torch.optim.AdamW([p for p in model.parameters() if p.requires_grad], lr=lr,
                             weight_decay=1e-5)
+    if objective == "sampled_softmax":
+        # In-batch softmax treats row i's item as the right answer for row i's user, so only
+        # clicked rows are training pairs. Using every row (86 % are non-clicks) taught the
+        # tower to retrieve items the user was shown and ignored.
+        rows = np.flatnonzero(tr["label"] == 1)
+        # logQ correction (Yi et al., RecSys 2019): in-batch negatives are sampled in
+        # proportion to how often an item is a positive, so popular items are over-penalised
+        # unless log q(item) is subtracted from their logits.
+        freq = np.bincount(tr["item"][rows].astype(np.int64), minlength=vocab.size)
+        log_q = np.log(freq / max(freq.sum(), 1) + 1e-12).astype(np.float32)
+    else:
+        rows = np.arange(len(tr["label"]))
+    n = len(rows)
     sched = torch.optim.lr_scheduler.OneCycleLR(
-        opt, max_lr=lr, total_steps=max(1, epochs * math.ceil(len(tr["label"]) / batch_size)))
+        opt, max_lr=lr, total_steps=max(1, epochs * math.ceil(n / batch_size)))
 
     demo_cols = ["130_1", "130_2", "130_3", "130_4", "130_5"]
-    n = len(tr["label"])
     rng = np.random.default_rng(SEED)
     history: list[dict] = []
     t0 = time.time()
@@ -127,7 +139,7 @@ def train_two_tower(epochs: int = 3, batch_size: int = 512, dim: int = 128,
         perm = rng.permutation(n)
         tot, nb = 0.0, 0
         for s in range(0, n, batch_size):
-            idx = perm[s:s + batch_size]
+            idx = rows[perm[s:s + batch_size]]
             if len(idx) < 2:
                 continue
             uid = tr["user"][idx]
@@ -142,6 +154,12 @@ def train_two_tower(epochs: int = 3, batch_size: int = 512, dim: int = 128,
                 u = model.user_vec(h, demo)
                 v = model.item_vec(item, cat)
                 logits = (u @ v.T) * model.logit_scale.exp()
+                logits = logits - torch.from_numpy(log_q[tr["item"][idx]]).to(device_str)[None, :]
+                # another row of the same user, or the same item, is not a negative
+                ut = torch.from_numpy(uid.astype(np.int64)).to(device_str)
+                clash = (ut[:, None] == ut[None, :]) | (item[:, None] == item[None, :])
+                clash.fill_diagonal_(False)
+                logits = logits.masked_fill(clash, float("-inf"))
                 loss = F.cross_entropy(logits, torch.arange(len(idx), device=device_str))
             else:
                 logits = model(h, demo, item, cat)
@@ -259,7 +277,7 @@ def train_rankers(epochs: int = 2, batch_size: int = 128, k: int = 50,
         out[mode] = {
             "mode": mode, "k": k if mode == "muse" else 1000, "epochs": epochs,
             "batch_size": batch_size, "steps": step, "train_seconds": round(time.time() - t0, 1),
-            "params_trainable": count_parameters(model), "residual": residual, "history": hist_log,
+            "params_trainable": count_parameters(model), "history": hist_log,
             "checkpoint": str(ckpt),
         }
     out["device"] = device_str
