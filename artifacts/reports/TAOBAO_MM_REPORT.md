@@ -230,13 +230,24 @@ All models share the **frozen** 128-d SCL table as a feature (not a parameter): 
 values versus **588,241 trainable parameters**. Keeping it frozen is what lets the whole catalogue sit
 in 8.45 GiB of VRAM with zero optimiser state.
 
-| Model | Role | Trainable params | Train time | Epochs | Loss (first → last) |
-|---|---|---|---|---|---|
-| Two-tower (BCE) | Direction 2 retrieval | 588,241 | 44.5 s | 3 | 0.4022 → 0.3907 |
-| Two-tower (sampled softmax) | retrieval ablation | 588,241 | 84.1 s | 3 | 6.9351 → 6.0984 |
-| Two-tower (ss + residual) | retrieval ablation | 588,241 | 145.3 s | 3 | 5.1761 → 4.5607 |
-| **DIN** | Direction 2 ranking | 653,522 | **154.7 s** | 2 | 0.3936 → 0.3907 |
-| **MUSE** (top-50 search) | Direction 2 ranking | 653,522 | **73.9 s** | 2 | 0.3939 → 0.3909 |
+| Model | Role | Trainable params | Train loop | Epochs | Steps | Loss (first → last) |
+|---|---|---|---|---|---|---|
+| Two-tower (BCE) | Direction 2 retrieval | 588,241 | 44.5 s | 3 | 11,682 | 0.4022 → 0.3907 |
+| Two-tower (sampled softmax) | retrieval ablation | 588,241 | 30.9 s | 3 | 2,922 | 6.9351 → 6.0984 |
+| Two-tower (ss + residual) | retrieval ablation | **621,009** | 49.7 s | 3 | 11,682 | 5.1761 → 4.5607 |
+| **DIN** | Direction 2 ranking | 653,522 | **154.7 s** | 2 | 31,146 | 0.3936 → 0.3907 |
+| **MUSE** (top-50 search) | Direction 2 ranking | 653,522 | **73.9 s** | 2 | 31,146 | 0.3939 → 0.3909 |
+
+*Times are the **pure training loop** (`train_seconds` in the JSON artifacts), not the CLI stage
+total: each retrieval stage also loads the 8.45 GiB frozen table, which costs ~50 s and would
+otherwise mask the real cost. The residual twin adds 32,768 parameters (two 128→128 projection
+matrices, one per tower), hence 621,009 not 588,241. Loss values are **not comparable across
+objectives**: BCE is a per-row binary loss, while `sampled_softmax` is a multi-class
+cross-entropy over the in-batch negatives, so 5.18 vs 0.40 is a different quantity, not a worse
+model — see §5 for the retrieval outcome that is comparable.*
+
+The ~50 s constant is the cost of materialising the 8.45 GiB bf16 embedding table on the GPU;
+it dominates the short runs and is why the retrieval ablations report sub-minute loop times.
 
 Peak VRAM during two-tower training: **8.58 GiB** of 47.4 GiB. Training throughput 134,366 rows/s.
 
