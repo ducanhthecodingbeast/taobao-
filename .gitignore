@@ -61,3 +61,6 @@ artifacts/logs
 *.log
 !artifacts/logs/.gitkeep
 .DS_Store
+*.json
+.ua
+uv.lock
